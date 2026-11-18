@@ -1,6 +1,7 @@
 import express from 'express';
 import cors from 'cors'
 import { MongoClient } from 'mongodb';
+import 'dotenv/config'
 
 
 
@@ -22,6 +23,8 @@ export async function connectToMongoDB() {
     console.dir(err);
   }
 }
+
+const connectClient = await connectToMongoDB();
 
 app.get('/', (req, res) => {
   res.send('Server is running Fine!');
