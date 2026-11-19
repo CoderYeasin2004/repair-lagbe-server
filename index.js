@@ -25,10 +25,22 @@ export async function connectToMongoDB() {
 }
 
 const connectClient = await connectToMongoDB();
+const database = client.db("repair-lagbe-db")
+const user = database.collection("user");
+const service = database.collection("service");
 
 app.get('/', (req, res) => {
-  res.send('Server is running Fine!');
+  res.send('RepairLagbe is Repairing!');
 });
+
+
+
+app.get('/user', async (req, res) => {
+  const cursor = user.find({});
+  const result = await cursor.toArray();
+  res.send(result);
+});
+
 
 
 
