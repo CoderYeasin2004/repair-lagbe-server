@@ -34,15 +34,29 @@ app.get('/', (req, res) => {
 });
 
 
-
+// add user
 app.get('/user', async (req, res) => {
   const cursor = user.find({});
   const result = await cursor.toArray();
   res.send(result);
 });
 
+// add services
+app.post("/services", async (req, res) => {
+  try {
+    const serviceData = req.body
 
+    const result = await service.insertOne(serviceData)
 
+    res.status(201).send(result)
+  } catch (error) {
+    console.error("Create service error:", error)
+
+    res.status(500).send({
+      message: "Failed to create service",
+    })
+  }
+})
 
 app.listen(port, () => {
   console.log(`Server is running at ${port}`);
