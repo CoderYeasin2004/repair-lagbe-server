@@ -42,6 +42,23 @@ app.get('/user', async (req, res) => {
 });
 
 // add services
+
+app.get("/services", async (req, res) => {
+  try {
+    const result = await service.find().toArray()
+
+    res.status(200).send(result)
+  } catch (error) {
+    console.error("Failed to fetch services:", error)
+
+    res.status(500).send({
+      success: false,
+      message: "Failed to fetch services",
+    })
+  }
+})
+
+
 app.post("/services", async (req, res) => {
   try {
     const serviceData = req.body
@@ -57,6 +74,8 @@ app.post("/services", async (req, res) => {
     })
   }
 })
+
+
 
 app.listen(port, () => {
   console.log(`Server is running at ${port}`);
