@@ -176,6 +176,125 @@ const result = await service.insertOne(serviceData)
   }
 });
 
+// Create repair booking
+app.post("/bookings", async (req, res) => {
+  try {
+    const {
+      serviceId,
+      customerName,
+      customerEmail,
+      customerPhone,
+      address,
+      preferredDate,
+      problemDescription,
+    } = req.body;
+
+    // Validate required fields
+    if (
+      !serviceId ||
+      !customerName ||
+      !customerEmail ||
+      !customerPhone ||
+      !address ||
+      !preferredDate ||
+      !problemDescription
+    ) {
+      return res.status(400).send({
+        message: "Please provide all required information.",
+      });
+    }
+
+    if (!ObjectId.isValid(serviceId)) {
+      return res.status(400).send({
+        message: "Invalid service ID.",
+      });
+    }
+
+    if (problemDescription.trim().length < 20) {
+      return res.status(400).send({
+        message: "Problem description must be at least 20 characters.",
+      });
+    }
+
+    const requestedDate = new Date(preferredDate);
+
+    if (
+      Number.isNaN(requestedDate.getTime()) ||
+      requestedDate.setHours(0, 0, 0, 0) <
+        new Date().setHours(0, 0, 0, 0)
+    ) {
+      return res.status(400).send({
+        message: "Please select today or a future date.",
+      });
+    }
+
+    // Find service
+    const selectedService = await service.findOne({
+      _id: new ObjectId(serviceId),
+    });
+
+    if (
+      !selectedService ||
+      selectedService.approvalStatus !== "approved" ||
+      selectedService.isAvailable === false ||
+      selectedService.isAvailable === "false" ||
+      selectedService.availability === "unavailable"
+    ) {
+      return res.status(404).send({
+        message: "This service is not available.",
+      });
+    }
+
+    // Prevent duplicate active requests
+    const existingBooking = await booking.findOne({
+      serviceId,
+      customerEmail,
+      status: { $in: ["requested", "accepted", "in-progress"] },
+    });
+
+    if (existingBooking) {
+      return res.status(409).send({
+        message: "You already have an active request for this service.",
+      });
+    }
+
+    // Prepare booking data
+    const bookingData = {
+      serviceId,
+      serviceTitle: selectedService.title,
+      serviceImage: selectedService.imageUrl || selectedService.image || "",
+      category: selectedService.category,
+      basePrice: Number(selectedService.basePrice ?? selectedService.price),
+      technicianName: selectedService.technicianName,
+      technicianEmail: selectedService.technicianEmail,
+      customerName: customerName.trim(),
+      customerEmail: customerEmail.trim(),
+      customerPhone: customerPhone.trim(),
+      address: address.trim(),
+      preferredDate: requestedDate,
+      problemDescription: problemDescription.trim(),
+      status: "requested",
+      finalAmount: Number(selectedService.basePrice ?? selectedService.price),
+      paymentStatus: "unpaid",
+      createdAt: new Date(),
+    };
+
+    const result = await booking.insertOne(bookingData);
+
+    res.status(201).send({
+      success: true,
+      message: "Repair request submitted successfully.",
+      insertedId: result.insertedId,
+    });
+  } catch (error) {
+    console.error("Create booking error:", error);
+
+    res.status(500).send({
+      message: "Failed to submit repair request.",
+    });
+  }
+});
+
 
 
 // delete service api
@@ -215,6 +334,8 @@ app.delete("/services/:id", async (req, res) => {
     });
   }
 });
+
+
 app.listen(port, () => {
   console.log(`Server is running at ${port}`);
 });
