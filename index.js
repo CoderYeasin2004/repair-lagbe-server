@@ -39,7 +39,7 @@ app.get("/", (req, res) => {
 
 
 
-// add user
+// add user 
 app.get("/user", async (req, res) => {
 
   const cursor = user.find({query});
@@ -47,7 +47,31 @@ app.get("/user", async (req, res) => {
   res.send(result);
 });
 
+// payment status check api
+app.get("/bookings/:id/paid", async (req, res) => {
+  try {
+    const bookingId = req.params.id;
 
+    if (!ObjectId.isValid(bookingId)) {
+      return res.status(400).send({ message: "Invalid booking ID" });
+    }
+
+    const result = await booking.findOne(
+      { _id: new ObjectId(bookingId) },
+      { projection: { paymentStatus: 1 } }
+    );
+
+    if (!result) {
+      return res.status(404).send({ message: "Booking not found" });
+    }
+
+    res.send({
+      paymentStatus: result.paymentStatus,
+    });
+  } catch (error) {
+    res.status(500).send({ message: "Failed to check payment status" });
+  }
+});
 
 // service details api //
 
