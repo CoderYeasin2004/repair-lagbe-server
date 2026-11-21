@@ -77,6 +77,7 @@ app.get("/services/:id", async (req, res) => {
   }
 })
 
+
 // add services & show services in the my services page api
 
 app.get("/services", async (req, res) => {
@@ -154,6 +155,7 @@ app.get("/services", async (req, res) => {
     })
   }
 })
+
 
 app.post("/services", async (req, res) => {
   const serviceData = {
@@ -295,10 +297,43 @@ app.post("/bookings", async (req, res) => {
   }
 });
 
+// Get logged-in customer's bookings
+app.get("/bookings", async (req, res) => {
+  try {
+    const customerEmail =
+      typeof req.query.customerEmail === "string"
+        ? req.query.customerEmail.trim()
+        : "";
+
+    if (!customerEmail) {
+      return res.status(400).send({
+        success: false,
+        message: "Customer email is required.",
+      });
+    }
+
+    const result = await booking
+      .find({ customerEmail })
+      .sort({ createdAt: -1 })
+      .toArray();
+
+    res.status(200).send({
+      success: true,
+      totalBookings: result.length,
+      bookings: result,
+    });
+  } catch (error) {
+    console.error("Get customer bookings error:", error);
+
+    res.status(500).send({
+      success: false,
+      message: "Failed to fetch customer bookings.",
+    });
+  }
+});
 
 
 // delete service api
-
 app.delete("/services/:id", async (req, res) => {
   try {
     const { id } = req.params;
