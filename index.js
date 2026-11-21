@@ -2,6 +2,9 @@ import express from "express";
 import cors from "cors";
 import { MongoClient, ObjectId } from "mongodb"
 import "dotenv/config";
+import Stripe from "stripe";
+
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
 
 const app = express();
 const port = process.env.PORT || 5000;
@@ -27,6 +30,7 @@ const database = client.db("repair-lagbe-db");
 const user = database.collection("user");
 const service = database.collection("service");
 const booking = database.collection("bookings");
+const payments = database.collection("payments");
 
 app.get("/", (req, res) => {
   res.send("RepairLagbe is Repairing!");
@@ -175,6 +179,40 @@ const result = await service.insertOne(serviceData)
     res.status(500).send({
       message: "Failed to create service",
     });
+  }
+});
+
+
+// get customer booking count api
+app.get("/bookings/count", async (req, res) => {
+  try {
+    const userEmail = req.query.userid;
+
+    if (!userEmail) {
+      return res.status(400).send({ message: "User email is required" });
+    }
+
+    const totalRequests = await booking.countDocuments({
+      customerEmail: userEmail,
+    });
+
+    const activeJobs = await booking.countDocuments({
+      customerEmail: userEmail,
+      status: { $in: ["requested", "accepted", "in-progress"] },
+    });
+
+    const completedJobs = await booking.countDocuments({
+      customerEmail: userEmail,
+      status: "completed",
+    });
+
+    res.send({
+      totalRequests,
+      activeJobs,
+      completedJobs,
+    });
+  } catch (error) {
+    res.status(500).send({ message: "Failed to count bookings" });
   }
 });
 
@@ -370,6 +408,133 @@ app.delete("/services/:id", async (req, res) => {
   }
 });
 
+
+
+// Payment verification API
+app.post("/payments/verify", async (req, res) => {
+  try {
+    const { sessionId } = req.body;
+
+    if (!sessionId) {
+      return res.status(400).send({
+        success: false,
+        message: "Stripe session ID is required.",
+      });
+    }
+
+    // Retrieve Stripe Checkout Session
+    const session = await stripe.checkout.sessions.retrieve(sessionId, {
+      expand: ["payment_intent"],
+    });
+
+    if (session.payment_status !== "paid") {
+      return res.status(400).send({
+        success: false,
+        message: "Payment is not completed.",
+      });
+    }
+
+    const bookingId = session.metadata?.bookingId;
+    const customerEmail = session.metadata?.customerEmail;
+
+    if (!bookingId || !ObjectId.isValid(bookingId)) {
+      return res.status(400).send({
+        success: false,
+        message: "Invalid booking information.",
+      });
+    }
+
+    // Find booking
+    const selectedBooking = await booking.findOne({
+      _id: new ObjectId(bookingId),
+    });
+
+    if (!selectedBooking) {
+      return res.status(404).send({
+        success: false,
+        message: "Booking not found.",
+      });
+    }
+
+    if (selectedBooking.customerEmail !== customerEmail) {
+      return res.status(403).send({
+        success: false,
+        message: "Customer email does not match.",
+      });
+    }
+
+    if (selectedBooking.status !== "completed") {
+      return res.status(400).send({
+        success: false,
+        message: "Booking is not completed.",
+      });
+    }
+
+    // Prevent duplicate payment
+    const existingPayment = await payments.findOne({
+      bookingId,
+    });
+
+    if (existingPayment) {
+      return res.status(200).send({
+        success: true,
+        message: "Payment already verified.",
+      });
+    }
+
+    const paymentIntent = session.payment_intent;
+    const transactionId =
+      typeof paymentIntent === "string"
+        ? paymentIntent
+        : paymentIntent?.id;
+
+    // Prepare payment document
+    const paymentData = {
+      bookingId,
+      serviceTitle: selectedBooking.serviceTitle,
+      customerName: selectedBooking.customerName,
+      customerEmail: selectedBooking.customerEmail,
+      technicianName: selectedBooking.technicianName,
+      technicianEmail: selectedBooking.technicianEmail,
+      amount: selectedBooking.finalAmount,
+      currency: session.currency,
+      transactionId,
+      stripeSessionId: session.id,
+      paymentStatus: "paid",
+      paidAt: new Date(),
+    };
+
+    // Save payment
+    await payments.insertOne(paymentData);
+
+    // Update booking payment status
+    await booking.updateOne(
+      {
+        _id: new ObjectId(bookingId),
+        status: "completed",
+        paymentStatus: "unpaid",
+      },
+      {
+        $set: {
+          paymentStatus: "paid",
+        },
+      }
+    );
+
+    return res.status(200).send({
+      success: true,
+      message: "Payment verified and saved successfully.",
+      payment: paymentData,
+    });
+  } catch (error) {
+    console.error("Payment verification error:", error);
+
+    return res.status(500).send({
+      success: false,
+      message: "Failed to verify payment.",
+    });
+  }
+});
 
 app.listen(port, () => {
   console.log(`Server is running at ${port}`);
