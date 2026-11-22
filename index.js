@@ -41,6 +41,8 @@ app.get("/", (req, res) => {
   res.send("RepairLagbe is Repairing!");
 });
 
+
+
 const tokenVerify = async (req, res, next) => {
   try {
     const authHeader = req.headers.authorization
@@ -78,6 +80,17 @@ const tokenVerify = async (req, res, next) => {
     return res.status(401).send({ message: "Unauthorized" })
   }
 }
+// must call after verifyToken
+
+const verifyCustomer = (req, res, next) => {
+  if (req.user.role !== "customer") {
+    return res.status(403).send({
+      message: "Forbidden: Customer access only",
+    });
+  }
+
+  next();
+};
 
 
 // add user
@@ -457,7 +470,6 @@ app.patch("/bookings/:id", async (req, res) => {
 });
 
 
-
 app.post("/services", tokenVerify, async (req, res) => {
   console.log("Authorization:", req.headers.authorization)
   try {
@@ -480,7 +492,7 @@ app.post("/services", tokenVerify, async (req, res) => {
 });
 
 // Create repair booking
-app.post("/bookings", async (req, res) => {
+app.post("/bookings", tokenVerify, verifyCustomer, async (req, res) => {
   try {
     const {
       serviceId,
