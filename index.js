@@ -4,7 +4,8 @@ import { MongoClient, ObjectId } from "mongodb";
 import "dotenv/config";
 import Stripe from "stripe";
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
+
+
 
 const app = express();
 const port = process.env.PORT || 5000;
@@ -13,7 +14,7 @@ const port = process.env.PORT || 5000;
 app.use(express.json());
 app.use(cors());
 
-const client = new MongoClient(process.env.MONGO_DB_AUTH_URI);
+
 
 export async function connectToMongoDB() {
   try {
@@ -25,9 +26,13 @@ export async function connectToMongoDB() {
   }
 }
 
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
+const client = new MongoClient(process.env.MONGO_DB_AUTH_URI);
+
 const connectClient = await connectToMongoDB();
 const database = client.db("repair-lagbe-db");
 const user = database.collection("user");
+const session = database.collection("session")
 const service = database.collection("service");
 const booking = database.collection("bookings");
 const payments = database.collection("payments");
@@ -35,6 +40,45 @@ const payments = database.collection("payments");
 app.get("/", (req, res) => {
   res.send("RepairLagbe is Repairing!");
 });
+
+const tokenVerify = async (req, res, next) => {
+  try {
+    const authHeader = req.headers.authorization
+
+    if (!authHeader) {
+      return res.status(401).send({ message: "Unauthorized" })
+    }
+
+    const token = authHeader.split(' ')[1]
+
+    if (!token) {
+      return res.status(401).send({ message: "Unauthorized" })
+    }
+
+    // Find session using token
+    const sessionData = await session.findOne({ token })
+
+    if (!sessionData) {
+      return res.status(401).send({ message: "Unauthorized" })
+    }
+
+    // Find user using session userId
+    const userData = await user.findOne({
+      _id: new ObjectId(sessionData.userId),
+    })
+
+    if (!userData) {
+      return res.status(401).send({ message: "Unauthorized" })
+    }
+
+    req.user = userData
+    next()
+  } catch (error) {
+    console.error("Token verification error:", error)
+    return res.status(401).send({ message: "Unauthorized" })
+  }
+}
+
 
 // add user
 app.get("/user", async (req, res) => {
@@ -135,6 +179,54 @@ app.get("/bookings/:id/paid", async (req, res) => {
   }
 });
 
+app.patch("/users/:id/role", async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { role } = req.body;
+
+    const allowedRoles = ["customer", "technician", "admin"];
+
+    if (!allowedRoles.includes(role)) {
+      return res.status(400).send({
+        success: false,
+        message: "Invalid role",
+      });
+    }
+
+    if (!ObjectId.isValid(id)) {
+      return res.status(400).send({
+        success: false,
+        message: "Invalid user ID",
+      });
+    }
+
+    const result = await user.updateOne(
+      { _id: new ObjectId(id) },
+      { $set: { role } }
+    );
+
+    if (result.matchedCount === 0) {
+      return res.status(404).send({
+        success: false,
+        message: "User not found",
+      });
+    }
+
+    res.status(200).send({
+      success: true,
+      message: "User role updated successfully",
+      modifiedCount: result.modifiedCount,
+    });
+  } catch (error) {
+    console.error("Role update error:", error);
+
+    res.status(500).send({
+      success: false,
+      message: "Failed to update role",
+    });
+  }
+});
+
 // Get a booking by ID
 app.get("/bookings/:id", async (req, res) => {
   try {
@@ -192,11 +284,12 @@ app.get("/services/:id", async (req, res) => {
 
 // add services & show services in the my services page api
 
+
 app.get("/services", async (req, res) => {
   try {
     const query = {};
 
-    // indivisual technician services
+    // Individual technician services
     const technicianEmail =
       typeof req.query.technicianEmail === "string"
         ? req.query.technicianEmail.trim()
@@ -208,18 +301,30 @@ app.get("/services", async (req, res) => {
 
     // Search
     const search =
-      typeof req.query.search === "string" ? req.query.search.trim() : "";
+      typeof req.query.search === "string"
+        ? req.query.search.trim()
+        : "";
 
-    // Category Filter
+    // Category filter
     const category =
-      typeof req.query.category === "string" ? req.query.category : "";
+      typeof req.query.category === "string"
+        ? req.query.category.trim()
+        : "";
 
-    // Service Mode Filter
+    // Service mode filter
     const serviceMode =
-      typeof req.query.serviceMode === "string" ? req.query.serviceMode : "";
+      typeof req.query.serviceMode === "string"
+        ? req.query.serviceMode.trim()
+        : "";
 
     // Sorting
-    const sort = typeof req.query.sort === "string" ? req.query.sort : "";
+    const sort =
+      typeof req.query.sort === "string"
+        ? req.query.sort
+        : "";
+
+    // Home page featured services
+    const featured = req.query.featured === "true";
 
     // Search by title or category
     if (search) {
@@ -229,14 +334,20 @@ app.get("/services", async (req, res) => {
       ];
     }
 
-    // Filter by category
+    // Category filter
     if (category) {
       query.category = category;
     }
 
-    // Filter by service mode
+    // Service mode filter
     if (serviceMode) {
       query.serviceMode = serviceMode;
+    }
+
+    // Featured services: approved and available only
+    if (featured) {
+      query.approvalStatus = "approved";
+      query.isAvailable = { $in: [true, "true"] };
     }
 
     // Sort options
@@ -250,10 +361,17 @@ app.get("/services", async (req, res) => {
       sortOption = { createdAt: -1 };
     }
 
-    console.log("Mongo query:", JSON.stringify(query));
-    console.log("Sort option:", sortOption);
+    // Build MongoDB query
+    let cursor = service.find(query);
 
-    const result = await service.find(query).sort(sortOption).toArray();
+    // Featured services always show latest 6
+    if (featured) {
+      cursor = cursor.sort({ createdAt: -1 }).limit(6);
+    } else {
+      cursor = cursor.sort(sortOption);
+    }
+
+    const result = await cursor.toArray();
 
     res.status(200).send(result);
   } catch (error) {
@@ -340,7 +458,8 @@ app.patch("/bookings/:id", async (req, res) => {
 
 
 
-app.post("/services", async (req, res) => {
+app.post("/services", tokenVerify, async (req, res) => {
+  console.log("Authorization:", req.headers.authorization)
   try {
     const serviceData = {
       ...req.body,
