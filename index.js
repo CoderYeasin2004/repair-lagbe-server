@@ -266,6 +266,80 @@ app.get("/services", async (req, res) => {
   }
 });
 
+
+app.patch("/bookings/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { status, finalAmount } = req.body;
+
+    if (!ObjectId.isValid(id)) {
+      return res.status(400).send({
+        success: false,
+        message: "Invalid booking ID",
+      });
+    }
+
+    const bookingData = await booking.findOne({
+      _id: new ObjectId(id),
+    });
+
+    if (!bookingData) {
+      return res.status(404).send({
+        success: false,
+        message: "Booking not found",
+      });
+    }
+
+    const allowedTransitions = {
+      requested: ["accepted", "rejected"],
+      accepted: ["in-progress"],
+      "in-progress": ["completed"],
+    };
+
+    if (!allowedTransitions[bookingData.status]?.includes(status)) {
+      return res.status(400).send({
+        success: false,
+        message: `Cannot change status from ${bookingData.status} to ${status}`,
+      });
+    }
+
+    const updateData = { status };
+
+    if (status === "completed") {
+      const amount = Number(finalAmount);
+
+      if (!Number.isFinite(amount) || amount <= 0) {
+        return res.status(400).send({
+          success: false,
+          message: "Final amount must be greater than 0",
+        });
+      }
+
+      updateData.finalAmount = amount;
+    }
+
+    const result = await booking.updateOne(
+      { _id: new ObjectId(id) },
+      { $set: updateData }
+    );
+
+    res.status(200).send({
+      success: true,
+      message: "Booking status updated successfully",
+      modifiedCount: result.modifiedCount,
+    });
+  } catch (error) {
+    console.error("Booking status update error:", error);
+
+    res.status(500).send({
+      success: false,
+      message: "Failed to update booking status",
+    });
+  }
+});
+
+
+
 app.post("/services", async (req, res) => {
   try {
     const serviceData = {
@@ -285,8 +359,6 @@ app.post("/services", async (req, res) => {
     });
   }
 });
-
-
 
 // Create repair booking
 app.post("/bookings", async (req, res) => {
@@ -406,7 +478,8 @@ app.post("/bookings", async (req, res) => {
   }
 });
 
-// Get logged-in customer's bookings
+
+// Get customer/technician bookings
 app.get("/bookings", async (req, res) => {
   try {
     const customerEmail =
@@ -414,15 +487,26 @@ app.get("/bookings", async (req, res) => {
         ? req.query.customerEmail.trim()
         : "";
 
-    if (!customerEmail) {
+    const technicianEmail =
+      typeof req.query.technicianEmail === "string"
+        ? req.query.technicianEmail.trim()
+        : "";
+
+    let query = {};
+
+    if (technicianEmail) {
+      query.technicianEmail = technicianEmail;
+    } else if (customerEmail) {
+      query.customerEmail = customerEmail;
+    } else {
       return res.status(400).send({
         success: false,
-        message: "Customer email is required.",
+        message: "Customer or technician email is required.",
       });
     }
 
     const result = await booking
-      .find({ customerEmail })
+      .find(query)
       .sort({ createdAt: -1 })
       .toArray();
 
@@ -432,11 +516,11 @@ app.get("/bookings", async (req, res) => {
       bookings: result,
     });
   } catch (error) {
-    console.error("Get customer bookings error:", error);
+    console.error("Get bookings error:", error);
 
     res.status(500).send({
       success: false,
-      message: "Failed to fetch customer bookings.",
+      message: "Failed to fetch bookings.",
     });
   }
 });
