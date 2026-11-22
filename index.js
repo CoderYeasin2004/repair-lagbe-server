@@ -1,6 +1,6 @@
 import express from "express";
 import cors from "cors";
-import { MongoClient, ObjectId } from "mongodb"
+import { MongoClient, ObjectId } from "mongodb";
 import "dotenv/config";
 import Stripe from "stripe";
 
@@ -36,18 +36,73 @@ app.get("/", (req, res) => {
   res.send("RepairLagbe is Repairing!");
 });
 
-
-
-
-// add user 
+// add user
 app.get("/user", async (req, res) => {
-
-  const cursor = user.find({query});
+  const cursor = user.find({ query });
   const result = await cursor.toArray();
   res.send(result);
 });
 
 
+// Get customer/technician booking count
+app.get("/bookings/count", async (req, res) => {
+  try {
+    const userEmail =
+      typeof req.query.userid === "string"
+        ? req.query.userid.trim()
+        : "";
+
+    const role =
+      typeof req.query.role === "string"
+        ? req.query.role.trim()
+        : "customer";
+
+    if (!userEmail) {
+      return res.status(400).send({
+        message: "User email is required",
+      });
+    }
+
+    // Technician booking count
+    if (role === "technician") {
+      const pendingRequests = await booking.countDocuments({
+        technicianEmail: userEmail,
+        status: "requested",
+      });
+
+      return res.status(200).send({
+        pendingRequests,
+      });
+    }
+
+    // Customer booking count
+    const totalRequests = await booking.countDocuments({
+      customerEmail: userEmail,
+    });
+
+    const activeJobs = await booking.countDocuments({
+      customerEmail: userEmail,
+      status: { $in: ["requested", "accepted", "in-progress"] },
+    });
+
+    const completedJobs = await booking.countDocuments({
+      customerEmail: userEmail,
+      status: "completed",
+    });
+
+    res.status(200).send({
+      totalRequests,
+      activeJobs,
+      completedJobs,
+    });
+  } catch (error) {
+    console.error("Booking count error:", error);
+
+    res.status(500).send({
+      message: "Failed to count bookings",
+    });
+  }
+});
 // Get booking payment status and final amount
 app.get("/bookings/:id/paid", async (req, res) => {
   try {
@@ -64,7 +119,7 @@ app.get("/bookings/:id/paid", async (req, res) => {
           paymentStatus: 1,
           finalAmount: 1,
         },
-      }
+      },
     );
 
     if (!result) {
@@ -79,7 +134,6 @@ app.get("/bookings/:id/paid", async (req, res) => {
     res.status(500).send({ message: "Failed to get booking details" });
   }
 });
-
 
 // Get a booking by ID
 app.get("/bookings/:id", async (req, res) => {
@@ -108,124 +162,119 @@ app.get("/bookings/:id", async (req, res) => {
 
 app.get("/services/:id", async (req, res) => {
   try {
-    const { id } = req.params
+    const { id } = req.params;
 
     if (!ObjectId.isValid(id)) {
       return res.status(400).send({
         message: "Invalid service ID",
-      })
+      });
     }
 
     const result = await service.findOne({
       _id: new ObjectId(id),
-    })
+    });
 
     if (!result) {
       return res.status(404).send({
         message: "Service not found",
-      })
+      });
     }
 
-    res.status(200).send(result)
+    res.status(200).send(result);
   } catch (error) {
-    console.error("Get service details error:", error)
+    console.error("Get service details error:", error);
 
     res.status(500).send({
       message: "Failed to fetch service details",
-    })
+    });
   }
-})
-
+});
 
 // add services & show services in the my services page api
 
 app.get("/services", async (req, res) => {
   try {
-    const query = {}
+    const query = {};
+
+    // indivisual technician services
+    const technicianEmail =
+      typeof req.query.technicianEmail === "string"
+        ? req.query.technicianEmail.trim()
+        : "";
+
+    if (technicianEmail) {
+      query.technicianEmail = technicianEmail;
+    }
 
     // Search
     const search =
-      typeof req.query.search === "string"
-        ? req.query.search.trim()
-        : ""
+      typeof req.query.search === "string" ? req.query.search.trim() : "";
 
     // Category Filter
     const category =
-      typeof req.query.category === "string"
-        ? req.query.category
-        : ""
+      typeof req.query.category === "string" ? req.query.category : "";
 
     // Service Mode Filter
     const serviceMode =
-      typeof req.query.serviceMode === "string"
-        ? req.query.serviceMode
-        : ""
+      typeof req.query.serviceMode === "string" ? req.query.serviceMode : "";
 
     // Sorting
-    const sort =
-      typeof req.query.sort === "string"
-        ? req.query.sort
-        : ""
+    const sort = typeof req.query.sort === "string" ? req.query.sort : "";
 
     // Search by title or category
     if (search) {
       query.$or = [
         { title: { $regex: search, $options: "i" } },
         { category: { $regex: search, $options: "i" } },
-      ]
+      ];
     }
 
     // Filter by category
     if (category) {
-      query.category = category
+      query.category = category;
     }
 
     // Filter by service mode
     if (serviceMode) {
-      query.serviceMode = serviceMode
+      query.serviceMode = serviceMode;
     }
 
     // Sort options
-    let sortOption = {}
+    let sortOption = {};
 
     if (sort === "price-asc") {
-      sortOption = { price: 1 }
+      sortOption = { basePrice: 1 };
     } else if (sort === "price-desc") {
-      sortOption = { price: -1 }
+      sortOption = { basePrice: -1 };
     } else if (sort === "newest") {
-      sortOption = { createdAt: -1 }
+      sortOption = { createdAt: -1 };
     }
 
-    console.log("Mongo query:", JSON.stringify(query))
-    console.log("Sort option:", sortOption)
+    console.log("Mongo query:", JSON.stringify(query));
+    console.log("Sort option:", sortOption);
 
-    const result = await service
-      .find(query)
-      .sort(sortOption)
-      .toArray()
+    const result = await service.find(query).sort(sortOption).toArray();
 
-    res.status(200).send(result)
+    res.status(200).send(result);
   } catch (error) {
-    console.error("Failed to fetch services:", error)
+    console.error("Failed to fetch services:", error);
 
     res.status(500).send({
       success: false,
       message: "Failed to fetch services",
-    })
+    });
   }
-})
-
+});
 
 app.post("/services", async (req, res) => {
-  const serviceData = {
-  ...req.body,
-  price: Number(req.body.price),
-  createdAt: new Date(),
-}
-
-const result = await service.insertOne(serviceData)
   try {
-    const serviceData = req.body;
+    const serviceData = {
+      ...req.body,
+      price: Number(req.body.price),
+      createdAt: new Date(),
+    };
+
+    const result = await service.insertOne(serviceData);
 
     res.status(201).send(result);
   } catch (error) {
@@ -238,38 +287,6 @@ const result = await service.insertOne(serviceData)
 });
 
 
-// get customer booking count api
-app.get("/bookings/count", async (req, res) => {
-  try {
-    const userEmail = req.query.userid;
-
-    if (!userEmail) {
-      return res.status(400).send({ message: "User email is required" });
-    }
-
-    const totalRequests = await booking.countDocuments({
-      customerEmail: userEmail,
-    });
-
-    const activeJobs = await booking.countDocuments({
-      customerEmail: userEmail,
-      status: { $in: ["requested", "accepted", "in-progress"] },
-    });
-
-    const completedJobs = await booking.countDocuments({
-      customerEmail: userEmail,
-      status: "completed",
-    });
-
-    res.send({
-      totalRequests,
-      activeJobs,
-      completedJobs,
-    });
-  } catch (error) {
-    res.status(500).send({ message: "Failed to count bookings" });
-  }
-});
 
 // Create repair booking
 app.post("/bookings", async (req, res) => {
@@ -315,8 +332,7 @@ app.post("/bookings", async (req, res) => {
 
     if (
       Number.isNaN(requestedDate.getTime()) ||
-      requestedDate.setHours(0, 0, 0, 0) <
-        new Date().setHours(0, 0, 0, 0)
+      requestedDate.setHours(0, 0, 0, 0) < new Date().setHours(0, 0, 0, 0)
     ) {
       return res.status(400).send({
         message: "Please select today or a future date.",
@@ -425,7 +441,6 @@ app.get("/bookings", async (req, res) => {
   }
 });
 
-
 // delete service api
 app.delete("/services/:id", async (req, res) => {
   try {
@@ -462,8 +477,6 @@ app.delete("/services/:id", async (req, res) => {
     });
   }
 });
-
-
 
 // Payment verification API
 app.post("/payments/verify", async (req, res) => {
@@ -539,9 +552,7 @@ app.post("/payments/verify", async (req, res) => {
 
     const paymentIntent = session.payment_intent;
     const transactionId =
-      typeof paymentIntent === "string"
-        ? paymentIntent
-        : paymentIntent?.id;
+      typeof paymentIntent === "string" ? paymentIntent : paymentIntent?.id;
 
     // Prepare payment document
     const paymentData = {
@@ -573,7 +584,7 @@ app.post("/payments/verify", async (req, res) => {
         $set: {
           paymentStatus: "paid",
         },
-      }
+      },
     );
 
     return res.status(200).send({
