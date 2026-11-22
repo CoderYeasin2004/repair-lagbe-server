@@ -47,7 +47,8 @@ app.get("/user", async (req, res) => {
   res.send(result);
 });
 
-// payment status check api
+
+// Get booking payment status and final amount
 app.get("/bookings/:id/paid", async (req, res) => {
   try {
     const bookingId = req.params.id;
@@ -58,7 +59,12 @@ app.get("/bookings/:id/paid", async (req, res) => {
 
     const result = await booking.findOne(
       { _id: new ObjectId(bookingId) },
-      { projection: { paymentStatus: 1 } }
+      {
+        projection: {
+          paymentStatus: 1,
+          finalAmount: 1,
+        },
+      }
     );
 
     if (!result) {
@@ -67,9 +73,34 @@ app.get("/bookings/:id/paid", async (req, res) => {
 
     res.send({
       paymentStatus: result.paymentStatus,
+      finalAmount: result.finalAmount,
     });
   } catch (error) {
-    res.status(500).send({ message: "Failed to check payment status" });
+    res.status(500).send({ message: "Failed to get booking details" });
+  }
+});
+
+
+// Get a booking by ID
+app.get("/bookings/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    if (!ObjectId.isValid(id)) {
+      return res.status(400).send({ message: "Invalid booking ID" });
+    }
+
+    const result = await booking.findOne({
+      _id: new ObjectId(id),
+    });
+
+    if (!result) {
+      return res.status(404).send({ message: "Booking not found" });
+    }
+
+    res.status(200).send(result);
+  } catch (error) {
+    res.status(500).send({ message: "Failed to fetch booking" });
   }
 });
 
