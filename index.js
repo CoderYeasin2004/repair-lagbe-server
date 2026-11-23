@@ -153,7 +153,6 @@ app.get("/admin/stats", verifyToken, verifyAdmin, async (req, res) => {
 });
 
 // Admin all service view
-
 app.get("/admin/services", verifyToken, verifyAdmin, async (req, res) => {
   try {
     const result = await service
@@ -497,6 +496,77 @@ app.get("/services", async (req, res) => {
     });
   }
 });
+
+app.patch("/services/:id", verifyToken, verifyTechnician, async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    if (!ObjectId.isValid(id)) {
+      return res.status(400).send({ message: "Invalid service ID" });
+    }
+
+    const {
+      title,
+      category,
+      description,
+      image,
+      basePrice,
+      estimatedDuration,
+      serviceMode,
+      serviceArea,
+    } = req.body;
+
+    if (!title || !category || !description || !image ||
+        !estimatedDuration || !serviceMode || !serviceArea) {
+      return res.status(400).send({ message: "All service fields are required" });
+    }
+
+    const price = Number(basePrice);
+
+    if (!Number.isFinite(price) || price <= 0) {
+      return res.status(400).send({ message: "Base price must be greater than 0" });
+    }
+
+    const result = await service.updateOne(
+      {
+        _id: new ObjectId(id),
+        technicianEmail: req.user.email,
+      },
+      {
+        $set: {
+          title,
+          category,
+          description,
+          image,
+          basePrice: price,
+          estimatedDuration,
+          serviceMode,
+          serviceArea,
+          approvalStatus: "pending",
+        },
+      }
+    );
+
+    if (result.matchedCount === 0) {
+      return res.status(404).send({
+        message: "Service not found or you do not own this service",
+      });
+    }
+
+    const updatedService = await service.findOne({
+      _id: new ObjectId(id),
+      technicianEmail: req.user.email,
+    });
+
+    res.send({
+      message: "Service updated successfully. Waiting for admin approval.",
+      service: updatedService,
+    });
+  } catch (error) {
+    res.status(500).send({ message: "Failed to update service" });
+  }
+});
+
 // get all booking in admin
 app.get("/admin/bookings", verifyToken, verifyAdmin, async (req, res) => {
   try {
