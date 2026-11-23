@@ -44,6 +44,7 @@ app.get("/", (req, res) => {
 
 
 const tokenVerify = async (req, res, next) => {
+
   try {
     const authHeader = req.headers.authorization
 
@@ -74,6 +75,7 @@ const tokenVerify = async (req, res, next) => {
     }
 
     req.user = userData
+    
     next()
   } catch (error) {
     console.error("Token verification error:", error)
@@ -91,6 +93,18 @@ const verifyCustomer = (req, res, next) => {
 
   next();
 };
+
+const verifyTechnician = (req, res, next) => {
+  if (req.user.role !== "technician") {
+    return res.status(403).send({
+      message: "Forbidden: Technician access only",
+    });
+  }
+
+  next();
+};
+
+
 
 
 // add user
@@ -192,7 +206,7 @@ app.get("/bookings/:id/paid", async (req, res) => {
   }
 });
 
-app.patch("/users/:id/role", async (req, res) => {
+app.patch("/users/:id/role", tokenVerify, async (req, res) => {
   try {
     const { id } = req.params;
     const { role } = req.body;
@@ -470,7 +484,7 @@ app.patch("/bookings/:id", async (req, res) => {
 });
 
 
-app.post("/services", tokenVerify, async (req, res) => {
+app.post("/services", tokenVerify,  verifyTechnician, async (req, res) => {
   console.log("Authorization:", req.headers.authorization)
   try {
     const serviceData = {
