@@ -715,6 +715,49 @@ app.patch("/bookings/:id",verifyToken,verifyTechnician,async (req, res) => {
     }
   }
 );
+// booking cancel
+app.patch("/bookings/:id/cancel",verifyToken,verifyCustomer,
+  async (req, res) => {
+    try {
+      const { id } = req.params;
+
+      if (!ObjectId.isValid(id)) {
+        return res.status(400).send({
+          message: "Invalid booking ID",
+        });
+      }
+
+      const result = await booking.updateOne(
+        {
+          _id: new ObjectId(id),
+          customerEmail: req.user.email,
+          status: "requested",
+        },
+        {
+          $set: {
+            status: "cancelled",
+          },
+        }
+      );
+
+      if (result.matchedCount === 0) {
+        return res.status(400).send({
+          message:
+            "Booking not found, or only requested bookings can be cancelled",
+        });
+      }
+
+      res.send({
+        message: "Booking cancelled successfully",
+      });
+    } catch (error) {
+      res.status(500).send({
+        message: "Failed to cancel booking",
+      });
+    }
+  }
+);
+
 
 // Admin: Approve or Reject Service
 app.patch(
@@ -1127,3 +1170,6 @@ app.post("/payments/verify",verifyToken,verifyCustomer,
 app.listen(port, () => {
   console.log(`Server is running at ${port}`);
 });
+
+
+export default app;
