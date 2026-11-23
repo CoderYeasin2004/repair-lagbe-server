@@ -132,6 +132,50 @@ app.get("/user", verifyToken, verifyAdmin, async (req, res) => {
   }
 });
 
+
+
+// Admin dashboard overview stats
+app.get("/admin/stats", verifyToken, verifyAdmin, async (req, res) => {
+  try {
+    const [totalUsers, totalTechnicians, pendingServices] =
+      await Promise.all([
+        user.countDocuments({}),
+        user.countDocuments({ role: "technician" }),
+        service.countDocuments({ approvalStatus: "pending" }),
+      ]);
+
+    res.status(200).send({
+      success: true,
+      totalUsers,
+      totalTechnicians,
+      pendingServices,
+    });
+  } catch (error) {
+    console.error("Admin stats error:", error);
+    res.status(500).send({
+      success: false,
+      message: "Failed to fetch dashboard stats",
+    });
+  }
+});
+
+// Admin all service view
+
+app.get("/admin/services", verifyToken, verifyAdmin, async (req, res) => {
+  try {
+    const result = await service
+      .find({})
+      .sort({ approvalStatus: 1, createdAt: -1 })
+      .toArray();
+
+    res.status(200).send(result);
+  } catch (error) {
+    res.status(500).send({
+      message: "Failed to fetch admin services",
+    });
+  }
+});
+
 // Get customer/technician booking count
 app.get("/bookings/count", verifyToken, async (req, res) => {
   try {
@@ -544,6 +588,52 @@ app.patch("/bookings/:id",verifyToken,verifyTechnician,async (req, res) => {
   }
 );
 
+// Admin: Approve or Reject Service
+app.patch(
+  "/admin/services/:id/approval",
+  verifyToken,
+  verifyAdmin,
+  async (req, res) => {
+    try {
+      const { id } = req.params;
+      const { approvalStatus } = req.body;
+
+      if (!ObjectId.isValid(id)) {
+        return res.status(400).send({
+          message: "Invalid service ID",
+        });
+      }
+
+      if (!["approved", "rejected"].includes(approvalStatus)) {
+        return res.status(400).send({
+          message: "Invalid approval status",
+        });
+      }
+
+      const result = await service.updateOne(
+        { _id: new ObjectId(id) },
+        {
+          $set: { approvalStatus },
+        }
+      );
+
+      if (result.matchedCount === 0) {
+        return res.status(404).send({
+          message: "Service not found",
+        });
+      }
+
+      res.send({
+        success: true,
+        message: `Service ${approvalStatus} successfully`,
+      });
+    } catch (error) {
+      res.status(500).send({
+        message: "Failed to update service approval",
+      });
+    }
+  }
+);
 
 app.post("/services", verifyToken,  verifyTechnician, async (req, res) => {
   console.log("Authorization:", req.headers.authorization)
