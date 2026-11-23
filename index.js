@@ -1,3 +1,5 @@
+import dns from 'node:dns';
+dns.setServers(['8.8.8.8', '8.8.4.4']);
 import express from "express";
 import cors from "cors";
 import { MongoClient, ObjectId } from "mongodb";
@@ -18,7 +20,7 @@ app.use(cors());
 
 export async function connectToMongoDB() {
   try {
-    await client.connect();
+    // await client.connect();
     console.log("You successfully connected to MongoDB!");
     return client;
   } catch (err) {
@@ -82,7 +84,6 @@ const verifyToken = async (req, res, next) => {
     return res.status(401).send({ message: "Unauthorized" })
   }
 }
-// must call after verifyToken
 
 const verifyCustomer = (req, res, next) => {
   if (req.user.role !== "customer") {
