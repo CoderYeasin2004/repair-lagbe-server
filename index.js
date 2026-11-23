@@ -119,19 +119,12 @@ const verifyAdmin = (req, res, next) => {
 // Get all users
 app.get("/user", verifyToken, verifyAdmin, async (req, res) => {
   try {
-    const result = await user.find({}).toArray();
-
-    res.status(200).send(result);
+    const users = await user.find({}).toArray();
+    res.send({ users });
   } catch (error) {
-    console.error("Get users error:", error);
-
-    res.status(500).send({
-      success: false,
-      message: "Failed to fetch users",
-    });
+    res.status(500).send({ message: "Failed to fetch users" });
   }
 });
-
 
 
 // Admin dashboard overview stats
@@ -375,7 +368,6 @@ app.get("/bookings/:id", verifyToken, async (req, res) => {
 });
 
 // service details api //
-
 app.get("/services/:id", async (req, res) => {
   try {
     const { id } = req.params;
@@ -406,8 +398,7 @@ app.get("/services/:id", async (req, res) => {
   }
 });
 
-// add services & show services in the my services page api
-
+// Get services
 app.get("/services", async (req, res) => {
   try {
     const query = {};
@@ -417,6 +408,12 @@ app.get("/services", async (req, res) => {
       typeof req.query.technicianEmail === "string"
         ? req.query.technicianEmail.trim()
         : "";
+
+    // Public page: show only approved and available services
+    if (!technicianEmail) {
+      query.approvalStatus = "approved";
+      query.isAvailable = { $in: [true, "true"] };
+    }
 
     if (technicianEmail) {
       query.technicianEmail = technicianEmail;
@@ -467,12 +464,6 @@ app.get("/services", async (req, res) => {
       query.serviceMode = serviceMode;
     }
 
-    // Featured services: approved and available only
-    if (featured) {
-      query.approvalStatus = "approved";
-      query.isAvailable = { $in: [true, "true"] };
-    }
-
     // Sort options
     let sortOption = {};
 
@@ -506,6 +497,73 @@ app.get("/services", async (req, res) => {
     });
   }
 });
+// get all booking in admin
+app.get("/admin/bookings", verifyToken, verifyAdmin, async (req, res) => {
+  try {
+    const { status } = req.query;
+
+    const validStatuses = [
+      "requested",
+      "accepted",
+      "rejected",
+      "in-progress",
+      "completed",
+      "cancelled",
+    ];
+
+    const query = {};
+
+    if (status && validStatuses.includes(status)) {
+      query.status = status;
+    }
+
+    const bookings = await booking
+      .find(query)
+      .sort({ preferredDate: -1 })
+      .toArray();
+
+    res.send(bookings);
+  } catch (error) {
+    res.status(500).send({
+      message: "Failed to fetch admin bookings",
+    });
+  }
+});
+
+
+// Get all payment transactions for admin
+app.get("/admin/payments", verifyToken, verifyAdmin, async (req, res) => {
+  try {
+    const allPayments = await payments
+      .find({})
+      .sort({ paidAt: -1 })
+      .toArray();
+
+    const revenueResult = await payments
+      .aggregate([
+        { $match: { paymentStatus: "paid" } },
+        {
+          $group: {
+            _id: null,
+            totalRevenue: { $sum: "$amount" },
+          },
+        },
+      ])
+      .toArray();
+
+    const totalRevenue = revenueResult[0]?.totalRevenue || 0;
+
+    res.send({
+      payments: allPayments,
+      totalRevenue,
+    });
+  } catch (error) {
+    res.status(500).send({
+      message: "Failed to fetch payment transactions",
+    });
+  }
+});
+
 
 // repair booking status update api
 app.patch("/bookings/:id",verifyToken,verifyTechnician,async (req, res) => {
